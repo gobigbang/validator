@@ -1,81 +1,50 @@
 package validator
 
 import (
-	"github.com/gobigbang/validator/messages"
 	"github.com/gobigbang/validator/types"
 )
 
-/*
-Add a validation rule to the global registry
-*/
-func AddValidationRule(name string, checker types.RuleCheckerFunc) {
-	types.RuleRegistry[name] = checker
+// Creates a new Valiator instance (*types.Validator)
+func New(rules types.RuleMap) *types.Validator {
+	return types.NewValidator(rules)
 }
 
-var DefaultValidatorConfig = types.ValidatorConfig{
-	StructTag: "json",
-	Messages:  messages.Messages,
+// Registers a rule in the global registry
+func RegisterRule(name string, rule types.IRule) {
+	types.Registry[name] = rule
 }
 
-func New(rules interface{}, config types.ValidatorConfig) types.Validator {
-	return types.Validator{
-		Rules:  rules,
-		Config: config,
+// Creates a new rule from the closure
+func Closure(f types.RuleClosure) types.Rule {
+	return types.Closure(f)
+}
+
+// Creates a single var validator RuleMap
+func Var(varName string, rules ...interface{}) types.RuleMap {
+	return Rules(Field("", rules...).Alias(varName))
+}
+
+// Creates a FieldRules
+// The field name is the fieldpath to be validated (on child objects or keys the format is a.b.c)
+// The rules can be any IRule or ruleCode (from the global registry)
+func Field(fieldName string, rules ...interface{}) types.FieldRules {
+	return types.FieldRules{}.Field(fieldName).Rules(rules)
+}
+
+// Creates a conditional rule
+func Conditional(cond types.ConditionalRuleCond) types.ConditionalRule {
+	return types.ConditionalRule{}.Condition(cond)
+}
+
+// Creates a RuleMap to be passed to the validator
+func Rules(rules ...types.FieldRules) types.RuleMap {
+	r := types.NewRuleMap()
+	if len(rules) > 0 {
+		rm := make(map[string]types.FieldRules)
+		for _, v := range rules {
+			rm[v.GetField()] = v
+		}
+		r = r.Rules(rm)
 	}
-}
-
-func Default(rules interface{}) types.Validator {
-	return New(rules, DefaultValidatorConfig)
-}
-
-/*
-The function FieldRules defines the validation rules (rules ...interface{})
-for a single field (field string)
-*/
-func FieldRules(field string, rules ...interface{}) types.FieldRules {
-	return types.FieldRules{
-		FieldName: field,
-		Rules:     rules,
-	}
-}
-
-/*
-The function MapRules defines the validation for a complex type (map or struct)
-recives the rules to be applied to each field
-*/
-func MapRules(rules ...types.FieldRules) types.MapRules {
-	return types.MapRules{
-		FieldRules: func() map[string]types.FieldRules {
-			ret := make(map[string]types.FieldRules)
-			for _, v := range rules {
-				ret[v.FieldName] = v
-			}
-			return ret
-		}(),
-	}
-}
-
-func ArrayRules(rules ...types.ArrayRulesItem) types.ArrayRules {
-	return types.ArrayRules{
-		Rules: func() map[string]types.ArrayRulesItem {
-			ret := make(map[string]types.ArrayRulesItem)
-			for _, v := range rules {
-				ret[v.Key] = v
-			}
-			return ret
-		}(),
-	}
-}
-func ArrayItemRules(key string, rules ...interface{}) types.ArrayRulesItem {
-	return types.ArrayRulesItem{
-		Key:   key,
-		Rules: rules,
-	}
-}
-
-func Conditional(check types.ConditionalRuleFunc, rules ...interface{}) types.ConditionalRule {
-	return types.ConditionalRule{
-		Cond:  check,
-		Rules: rules,
-	}
+	return r
 }

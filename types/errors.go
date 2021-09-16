@@ -1,128 +1,96 @@
 package types
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
-
-	"github.com/gobigbang/validator/messages"
 )
 
-type (
-	// Represents a validation error on field
-	ValidationError struct {
-		Field     string
-		Kind      reflect.Kind
-		Rule      string
-		Value     interface{}
-		ErrorCode string
-		Message   string
-	}
-
-	InternalError struct {
-		ErrorCode string
-		Message   string
-		Params    interface{}
-	}
-
-	// Map errors to field
-	ValidationErrorMap map[string]ValidationErrors
-	ValidationErrors   []error
-)
-
-func (e InternalError) Error() string {
-	return e.Message
+// The validation error type
+type ValidationError struct {
+	// Field name
+	Field string
+	// The kind of the value
+	Kind reflect.Kind
+	// The rulename
+	Rule string
+	// The value of the field that fails
+	Value interface{}
+	// The error code
+	ErrorCode string
+	// The error message
+	Message string
 }
 
-func (e ValidationErrors) Error() string {
-	count := len(e)
-	if count > 0 {
-		allErrors := make([]string, count)
-		if count > 0 {
-			for i, v := range e {
-				allErrors[i] = v.Error()
+// Message container
+type MessageBag struct {
+	Errors map[string][]ValidationError
+}
+
+// Creates a new message bag
+func NewMessageBag() *MessageBag {
+	return &MessageBag{
+		Errors: make(map[string][]ValidationError),
+	}
+}
+
+// Error implement
+func (bag *MessageBag) Error() string {
+	var errors []string
+	if bag != nil {
+		for k, messages := range bag.Errors {
+			var currErrors []string
+			for _, m := range messages {
+				currErrors = append(currErrors, m.Message)
 			}
+			errors = append(errors, k+":["+strings.Join(currErrors, ",")+"]")
 		}
-		return fmt.Sprint(allErrors)
 	}
-	return ""
+	return strings.Join(errors, ", ")
 }
 
-func (ve ValidationError) Error() string {
-	return ve.Message
+// Add a message to the bag
+func (bag *MessageBag) Add(key string, err ValidationError) *MessageBag {
+	_, ok := bag.Errors[key]
+	if !ok {
+		bag.Errors[key] = make([]ValidationError, 0)
+	}
+	bag.Errors[key] = append(bag.Errors[key], err)
+	return bag
 }
 
-func (em ValidationErrorMap) Error() string {
+// Obtains the first error for a key (if any)
+// It returns a ponter because it could be null
+func (bag *MessageBag) First(key string) *ValidationError {
+	m, ok := bag.Errors[key]
+	if ok {
+		return &m[0]
+	}
+	return nil
+}
 
-	count := len(em)
-	if count > 0 {
-		allErrors := make([]string, 0)
-		for k, v := range em {
-			errList := make([]string, 0)
-			for _, e := range v {
-				if vErr, ok := e.(ValidationError); ok {
-					errList = append(errList, vErr.Error())
-				}
+// Determines if the bag has a key
+func (bag *MessageBag) Has(key string) bool {
+	return bag.First(key) != nil
+}
+
+// Returns all the errors
+func (bag *MessageBag) Messages() map[string][]string {
+	if bag == nil {
+		return nil
+	}
+
+	ret := make(map[string][]string)
+	if bag.Errors == nil {
+		return ret
+	}
+	for k, v := range bag.Errors {
+		for _, e := range v {
+			_, ok := ret[k]
+			if !ok {
+				ret[k] = make([]string, 0)
 			}
-			allErrors = append(allErrors, fmt.Sprintf("%s:%s", k, errList))
-		}
-
-		return fmt.Sprint(allErrors)
-	}
-	return ""
-}
-
-// Creates a new validation error
-func NewValidationError(rule string, defaultMessage string, params RuleCheckerParameters) ValidationError {
-	message := defaultMessage
-	if params.ErrorMessage != "" {
-		message = params.ErrorMessage
-	}
-	message = ParseMessage(message, params)
-	vErr := ValidationError{
-		Field:     params.Field,
-		Kind:      params.Descriptor.RKind,
-		Value:     params.Value,
-		ErrorCode: fmt.Sprint("validation", "_", rule),
-		Rule:      rule,
-		Message:   message,
-	}
-	return vErr
-}
-
-// Creates a new internal error
-func NewInternalError(code string, defaultMessage string, params map[string]interface{}) InternalError {
-	message := defaultMessage
-	if message == "" {
-		message = messages.Messages[code].(string)
-		if message == "" {
-			message = "error_" + code
+			ret[k] = append(ret[k], e.Message)
 		}
 	}
-	if message != "" {
-		args := make([]string, 0)
-		if params != nil {
-			for k, v := range params {
-				args = append(args, "{"+k+"}")
-				args = append(args, fmt.Sprint(v))
-			}
-		}
-		message = strings.NewReplacer(args...).Replace(message)
-	}
-	return InternalError{
-		ErrorCode: code,
-		Message:   message,
-		Params:    params,
-	}
-}
-
-func ParseMessage(format string, params RuleCheckerParameters) string {
-	args := make([]string, 0)
-
-	args = append(args, "{Field}", params.Field, "{Value}", fmt.Sprint(params.Value))
-	i := 0
-	for _, v := range params.Args {
-		args = append(args, "{Arg"+fmt.Sprint(i)+"}", v)
-	}
-	return strings.NewReplacer(args...).Replace(format)
+	return ret
 }

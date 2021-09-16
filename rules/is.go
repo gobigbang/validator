@@ -1,58 +1,30 @@
 package rules
 
-import (
-	"context"
-	"reflect"
+// import (
+// 	"context"
+// 	"errors"
+// 	"reflect"
 
-	"github.com/gobigbang/validator/messages"
-	"github.com/gobigbang/validator/types"
-)
+// 	"github.com/gobigbang/validator/types"
+// )
 
-func IsArray(ctx context.Context, params types.RuleCheckerParameters) error {
-	var err error
-	passes := params.Value == nil || params.Descriptor.RKind == reflect.Array || params.Descriptor.RKind == reflect.Slice
-	if !passes {
-		err = types.NewValidationError("is_array", messages.GetMessage(params.Messages, "is_array"), params)
-	}
-	return err
-}
+// var IsString = types.Closure(func(ctx context.Context, value interface{}, params types.ValidateRequest) (e error) {
+// 	passes := value == nil || params.ValueDescriptor.RKind == reflect.String
+// 	if !passes {
+// 		e = errors.New(params.Message)
+// 	}
+// 	return
+// }).Message("The field must be a string.").Code("is_string")
 
-func IsString(ctx context.Context, params types.RuleCheckerParameters) error {
-	var err error
+// var IsNumeric = types.Closure(func(ctx context.Context, value interface{}, params types.ValidateRequest) (e error) {
+// 	passes := value == nil
 
-	passes := params.Value == nil || params.Descriptor.RKind == reflect.String
-	if !passes {
-		err = types.NewValidationError("is_string", messages.GetMessage(params.Messages, "is_string"), params)
-	}
-	return err
-}
+// 	if params.ValueDescriptor.RKind >= reflect.Int && params.ValueDescriptor.RKind <= reflect.Complex128 {
+// 		passes = true
+// 	}
 
-func IsInteger(ctx context.Context, params types.RuleCheckerParameters) error {
-	var err error
-
-	passes := params.Value == nil || params.Descriptor.RKind == reflect.Int || params.Descriptor.RKind == reflect.Int16 || params.Descriptor.RKind == reflect.Int8 || params.Descriptor.RKind == reflect.Int32 || params.Descriptor.RKind == reflect.Int64
-	if !passes {
-		err = types.NewValidationError("is_integer", messages.GetMessage(params.Messages, "is_integer"), params)
-	}
-	return err
-}
-
-func IsMap(ctx context.Context, params types.RuleCheckerParameters) error {
-	var err error
-
-	passes := params.Value == nil || params.Descriptor.RKind == reflect.Map
-	if !passes {
-		err = types.NewValidationError("is_map", messages.GetMessage(params.Messages, "is_map"), params)
-	}
-	return err
-}
-
-func IsStruct(ctx context.Context, params types.RuleCheckerParameters) error {
-	var err error
-
-	passes := params.Value == nil || params.Descriptor.RKind == reflect.Struct
-	if !passes {
-		err = types.NewValidationError("is_struct", messages.GetMessage(params.Messages, "is_struct"), params)
-	}
-	return err
-}
+// 	if !passes {
+// 		e = errors.New(params.Message)
+// 	}
+// 	return
+// }).Message("The field must be a number.").Code("is_numeric")

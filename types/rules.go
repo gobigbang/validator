@@ -2,239 +2,286 @@ package types
 
 import (
 	"context"
-	"fmt"
-	"reflect"
-	"strconv"
 
-	"github.com/gobigbang/validator/messages"
+	"github.com/gobigbang/validator/utils"
 )
 
 type (
+	// Global string=> rule container
+	RulesRegistry map[string]IRule
+
+	// Request passed to the validation method
+	ValidateRequest struct {
+		// The field value
+		Value interface{}
+		// The value descriptor
+		ValueDescriptor utils.ValueDescriptor
+		// The root object to be validated
+		RootValue interface{}
+		// The validator intance
+		Validator *Validator
+		// The validation context
+		Context context.Context
+	}
+
+	// Interface that must be implemented for the validatable objects
+	IValidation interface {
+		Execute(request ValidateRequest) (passes bool, e error)
+	}
+
+	// Rule interface
+	IRule interface {
+		Execute(request ValidateRequest) (passes bool, e error)
+		GetMessage() string
+		GetCode() string
+		GetClosure() RuleClosure
+	}
+
+	// Rule closure
+	RuleClosure func(params ValidateRequest) (passes bool, e error)
+
+	// Rule object
 	Rule struct {
-		Name    string
-		Message string
+		// The rule code (used for errors)
+		code string
+		// The error message
+		message string
+		// The validation method
+		closure RuleClosure
 	}
 
-	// Rules
-	RulesArr []interface{}
+	RuleWithArgs struct {
+		Rule
+		args []interface{}
+	}
 
-	// Field rule definition
+	RuleWithArgsCtr func(params ...interface{}) RuleWithArgs
+
+	Rules []Rule
+
+	AcceptableRules []interface{}
+
 	FieldRules struct {
-		FieldName string
-		Rules     RulesArr
+		field            string
+		rules            AcceptableRules
+		stopOnFirstError bool
+		alias            string
+		messages         map[string]string
 	}
 
-	// Field rules fieldName:FieldRuleDefinition
-	FieldRulesType map[string]FieldRules
-
-	ArrayRules struct {
-		Rules map[string]ArrayRulesItem
+	ConditionParams struct {
+		Validator *Validator
 	}
+	ConditionalRuleCond func(ctx context.Context, value interface{}, params ConditionParams) bool
 
-	ArrayRulesItem struct {
-		Key   string
-		Rules []interface{}
-	}
-
-	// Rule map
-	MapRules struct {
-		FieldRules       map[string]FieldRules
-		ExtraKeysAllowed []string
-	}
-
-	// Parameters to be passed to the rule function from the validator
-	RuleCheckerParameters struct {
-		Field        string
-		Value        interface{}
-		Values       interface{}
-		Args         []string
-		ErrorMessage string
-		Descriptor   ValueDescriptor
-		Messages     map[string]interface{}
-	}
-	// Rule check function definition
-	RuleCheckerFunc func(ctx context.Context, params RuleCheckerParameters) error
-
-	ParsedRule struct {
-		Checker RuleCheckerFunc
-		Args    []string
-	}
-
-	ConditionalRuleFunc func(ctx context.Context, value interface{}, values interface{}) bool
-	ConditionalRule     struct {
-		Cond  ConditionalRuleFunc
-		Rules RulesArr
-	}
-
-	Validatable interface {
-		Validate(ctx context.Context, input interface{}, config ValidatorConfig) error
+	ConditionalRule struct {
+		condition ConditionalRuleCond
+		failRules AcceptableRules
+		rules     AcceptableRules
 	}
 )
 
-func (fr FieldRules) Validate(ctx context.Context, input interface{}, config ValidatorConfig) error {
-	var err error
-	fieldValue := GetValueFromPath(fr.FieldName, input, config)
-	for _, r := range fr.Rules {
-		var ruleFunc ParsedRule
-		var vResult error
-		var errMessage string
-		switch r.(type) {
-		case string:
-			ruleFunc = getRuleFunc(r)
-			if ruleFunc.Checker == nil {
-				vResult = NewInternalError("invalid_rule", messages.GetMessage(config.Messages, "invalid_rule"), map[string]interface{}{
-					"Rule": fmt.Sprint(r),
-				})
-			}
-		case Rule:
-			rr := r.(Rule)
-			ruleFunc = getRuleFunc(rr.Name)
-			errMessage = rr.Message
-		case MapRules:
-			rm := r.(MapRules)
-			vResult = rm.Validate(ctx, fieldValue, config)
-		case ArrayRules:
-			ar := r.(ArrayRules)
-			vResult = ar.Validate(ctx, fieldValue, config)
-		case ConditionalRule:
-			cr := r.(ConditionalRule)
-			if cr.Cond(ctx, fieldValue, input) {
-				f := FieldRules{
-					Rules:     cr.Rules,
-					FieldName: fr.FieldName,
-				}
-				vResult = Validate(ctx, fieldValue, f, config)
-			}
-		default:
-			vResult = NewInternalError("invalid_rule", messages.GetMessage(config.Messages, "invalid_rule"), map[string]interface{}{
-				"Rule": fmt.Sprint(r),
-			})
-		}
-
-		if ruleFunc.Checker != nil {
-			d := GetDescriptor(fieldValue)
-			params := RuleCheckerParameters{
-				Field:        fr.FieldName,
-				Value:        d.Value,
-				Descriptor:   d,
-				Args:         ruleFunc.Args,
-				ErrorMessage: errMessage,
-				Messages:     config.Messages,
-			}
-			vResult = ruleFunc.Checker(ctx, params)
-
-		}
-
-		if vResult != nil {
-			if err == nil {
-				err = make(ValidationErrors, 0)
-			}
-			verr := err.(ValidationErrors)
-			if e, ok := vResult.(ValidationErrors); ok {
-				err = append(verr, e...)
-			} else {
-				err = append(verr, vResult)
-			}
-		}
-	}
-	return err
+func (f RuleClosure) Execute(request ValidateRequest) (passes bool, e error) {
+	passes, e = f(request)
+	return
 }
 
-func (rm MapRules) Validate(ctx context.Context, input interface{}, config ValidatorConfig) error {
-	var err error
-	for fieldName, fieldRules := range rm.FieldRules {
-		vErr := fieldRules.Validate(ctx, input, config)
-		if vErr != nil {
-			if err == nil {
-				err = make(ValidationErrorMap)
-			}
-			em := err.(ValidationErrorMap)
-			if _, ok := em[fieldName]; !ok {
-				em[fieldName] = make(ValidationErrors, 0)
-			}
-			switch vErr.(type) {
-			case ValidationErrors:
-				em[fieldName] = append(em[fieldName], vErr.(ValidationErrors)...)
-			default:
-				em[fieldName] = append(em[fieldName], vErr)
-			}
-
-		}
-	}
-	return err
+func Closure(f RuleClosure) Rule {
+	return NewRule(f)
 }
 
-func (ar ArrayRules) Validate(ctx context.Context, input interface{}, config ValidatorConfig) error {
-	var err error
-	d := GetDescriptor(input)
-	if d.RKind == reflect.Array || d.RKind == reflect.Slice {
-		var vResult error
-		var applyToAll []interface{}
-		for arrKey, arrRules := range ar.Rules {
-			// all values
-			if arrKey == "*" {
-				applyToAll = arrRules.Rules
-			} else {
-				var subErrors ValidationErrorMap
-				i, converr := strconv.Atoi(arrKey)
-				if converr == nil {
-					var sv interface{} = nil
-					if d.RValue.Len() >= i+1 {
-						iv := d.RValue.Index(i)
-						if (iv != reflect.Value{}) {
-							sv = iv.Interface()
-						}
-					}
-					applyRules := arrRules.Rules
-					applyRules = append(applyRules, applyToAll...)
-					for _, r := range applyRules {
-						e := Validate(ctx, sv, r, config)
-						if e != nil {
-							if subErrors == nil {
-								subErrors = make(ValidationErrorMap)
-							}
-							if emap, ok := e.(ValidationErrors); ok {
-								if subErrors[fmt.Sprint(i)] == nil {
-									subErrors[fmt.Sprint(i)] = make(ValidationErrors, 0)
-								}
-								for _, emValue := range emap {
-									subErrors[fmt.Sprint(i)] = append(subErrors[fmt.Sprint(i)], emValue)
-								}
-							}
-						}
-					}
-				}
-				if subErrors != nil {
-					if vResult == nil {
-						vResult = make(ValidationErrorMap)
-					}
-
-					for k, v := range subErrors {
-						vResult.(ValidationErrorMap)[k] = v
-					}
-
-				}
-
-			}
-			err = vResult
-		}
-
+func NewRule(f RuleClosure) Rule {
+	return Rule{
+		closure: f,
 	}
-	return err
 }
 
-func (cr ConditionalRule) Validate(ctx context.Context, input interface{}, config ValidatorConfig) error {
-	var err error
-	if cr.Cond(ctx, input, input) {
-		err = Validate(ctx, input, cr.Rules, config)
+func ClosureWithArgs(f RuleClosure, params ...interface{}) RuleWithArgs {
+	return RuleWithArgs{
+		Rule: Closure(f),
+		args: params,
 	}
-	return err
 }
 
-func (ra RulesArr) Validate(ctx context.Context, input interface{}, config ValidatorConfig) error {
-	var err error
-	for _, r := range ra {
-		err = Validate(ctx, input, r, config)
+// Rule methods
+
+func (r Rule) Message(m string) Rule {
+	r.message = m
+	return r
+}
+
+func (r Rule) GetMessage() string {
+	if r.message == "" {
+		return r.code
 	}
-	return err
+	return r.message
+}
+
+func (r Rule) Closure(c RuleClosure) Rule {
+	r.closure = c
+	return r
+}
+
+func (r Rule) GetClosure() RuleClosure {
+	return r.closure
+}
+
+func (r Rule) Code(c string) Rule {
+	r.code = c
+	return r
+}
+
+func (r Rule) GetCode() string {
+	return r.code
+}
+
+func (r Rule) Execute(request ValidateRequest) (passes bool, e error) {
+	return r.closure(request)
+}
+
+// rule with params
+
+func (r RuleWithArgsCtr) Execute(request ValidateRequest) (passes bool, e error) {
+	return true, e
+}
+
+func (r RuleWithArgs) Args(args ...interface{}) RuleWithArgs {
+	r.args = args
+	return r
+}
+
+func (r RuleWithArgs) GetArgs() []interface{} {
+	return r.args
+}
+
+func (r RuleWithArgs) Message(m string) RuleWithArgs {
+	r.message = m
+	return r
+}
+
+func (r RuleWithArgs) GetMessage() string {
+	return r.message
+}
+
+func (r RuleWithArgs) Closure(c RuleClosure) RuleWithArgs {
+	r.closure = c
+	return r
+}
+
+func (r RuleWithArgs) GetClosure() RuleClosure {
+	return r.closure
+}
+
+func (r RuleWithArgs) Code(c string) RuleWithArgs {
+	r.code = c
+	return r
+}
+
+func (r RuleWithArgs) GetCode() string {
+	return r.code
+}
+
+// conditional field rules
+func (r ConditionalRule) Rules(rules ...interface{}) ConditionalRule {
+	r.rules = rules
+	return r
+}
+
+func (r ConditionalRule) GetRules() []interface{} {
+	return r.rules
+}
+
+func (r ConditionalRule) FailRules(rules ...interface{}) ConditionalRule {
+	r.failRules = rules
+	return r
+}
+
+func (r ConditionalRule) GetFailRules() []interface{} {
+	return r.failRules
+}
+
+func (r ConditionalRule) GetApplicableRules(ctx context.Context, value interface{}, params ConditionParams) AcceptableRules {
+	if r.condition(ctx, value, params) {
+		return r.rules
+	}
+	return r.failRules
+}
+
+func (r ConditionalRule) Condition(cond ConditionalRuleCond) ConditionalRule {
+	r.condition = cond
+	return r
+}
+
+func (r ConditionalRule) GetCondition() ConditionalRuleCond {
+	return r.condition
+}
+
+// Field rules
+func (r FieldRules) StopOnFirstError(v bool) FieldRules {
+	r.stopOnFirstError = v
+	return r
+}
+
+func (r FieldRules) GetStopOnFirstError() bool {
+	return r.stopOnFirstError
+}
+
+// func (r FieldRules) FieldName(field string) FieldRules {
+// 	r.name = field
+// 	return r
+// }
+
+// func (r FieldRules) GetFieldName() string {
+// 	return r.name
+// }
+
+func (r FieldRules) Alias(alias string) FieldRules {
+	r.alias = alias
+	return r
+}
+
+func (r FieldRules) GetAlias() string {
+	if r.alias != "" {
+		return r.alias
+	}
+	return r.field
+}
+
+func (r FieldRules) Field(field string) FieldRules {
+	r.field = field
+	return r
+}
+
+func (r FieldRules) GetField() string {
+	return r.field
+}
+
+// func (r FieldRules) PathAlias(path string) FieldRules {
+// 	r.pathAlias = path
+// 	return r
+// }
+
+// func (r FieldRules) GetPathAlias() string {
+// 	if r.pathAlias != "" {
+// 		return r.pathAlias
+// 	}
+// 	return r.path
+// }
+
+func (r FieldRules) Rules(rules AcceptableRules) FieldRules {
+	r.rules = rules
+	return r
+}
+
+func (r FieldRules) GetRules() AcceptableRules {
+	return r.rules
+}
+
+func (r FieldRules) Messages(messages map[string]interface{}) FieldRules {
+	r.messages = utils.ParseMessages(messages)
+	return r
+}
+
+func (r FieldRules) GetMessages() map[string]string {
+	return r.messages
 }

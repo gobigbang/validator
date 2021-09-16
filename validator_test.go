@@ -3,66 +3,57 @@ package validator_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/gobigbang/validator"
-	"github.com/gobigbang/validator/utils"
 )
 
-type Struct01 struct {
-	A string `json:"a"`
-	B int
-	C time.Time
-}
+func TestValidator(t *testing.T) {
 
-func TestSimpleValidation(t *testing.T) {
-	rules := validator.FieldRules("var01", "string", "required", "min_length:8")
-	v := validator.Default(rules)
-	var input = "Hello World"
-	err := v.Validate(context.Background(), input)
-	if err != nil {
-		t.Error(err)
-	}
-}
+	t.Run("Simple var validation", func(t *testing.T) {
+		input := ""
+		rules := validator.Var("Input Var", "required", "not_zero").Messages(map[string]interface{}{
+			"required": "El campo {Field} no puede ser nulo",
+			"not_zero": "El campo {Field} no puede ser 0",
+		})
+		v := validator.New(rules)
+		e := v.Validate(context.Background(), input)
+		if e != nil {
+			t.Error(e)
+		}
+	})
 
-func TestMapValidation(t *testing.T) {
-	// rules := validator.MapRules(
-	// 	// validator.FieldRules("a", "string", "required", "max_length:4", "min_length:90"),
-	// 	// validator.FieldRules("b", "integer", "required"),
-	// 	// validator.FieldRules("c", "array", "min_length:3", validator.ArrayRules(
-	// 	// 	validator.ArrayItemRules("*", validator.FieldRules("c_c", "required")),
-	// 	// 	validator.ArrayItemRules("0", validator.FieldRules("a", "required")),
-	// 	// )),
-	// 	validator.FieldRules("d", "struct", validator.MapRules(
-	// 		validator.FieldRules("a", "required", "max_length:90", validator.Conditional(func(ctx context.Context, value, values interface{}) bool {
-	// 			return true
-	// 		}, "min_length:80")),
-	// 	)),
+	// t.Run("Map validator", func(t *testing.T) {
+	// 	rules:=validator.Rules()
+	// })
+
+	// rules := validator.Rules(
+	// 	validator.Field("a", `required`, `not_zero`).Messages(map[string]string{
+	// 		"required": `El campo "{Field}" tiene que estar`,
+	// 		"not_zero": `El campo "{Field}" no puede ser 0 value`,
+	// 	}).Alias("field01"),
+	// // validator.Field("a", rules.Required.Message("The field coso"), rules.In(1, 2, 3), rules.NotIn(1)),
+	// // validator.Field("b", "required", validator.Conditional(func(ctx context.Context, value interface{}, params types.ConditionParams) bool {
+	// // 	return false
+	// // }).Rules("string").FailRules("numeric")),
+	// // validator.Field("c", "required", "string", validator.Closure(func(ctx context.Context, value interface{}, params types.ValidateRequest) (e error) {
+	// // 	var err error
+	// // 	if value == nil {
+	// // 		return errors.New("Coso")
+	// // 	}
+	// // 	return err
+	// // })),
+	// // validator.Field("d", "not_zero"),
 	// )
-	rules := validator.Conditional(func(ctx context.Context, value, values interface{}) bool {
-		return true
-	}, validator.MapRules(
-		validator.FieldRules("a", "string", "required", "max_length:4", "min_length:90"),
-		validator.FieldRules("b", "integer", "required", validator.Conditional(func(ctx context.Context, value, values interface{}) bool {
-			return true
-		}), "min:1"),
-	))
-	v := validator.Default(rules)
-	var input = map[string]interface{}{
-		"a": "Hello world",
-		"b": 9.0,
-		"c": []map[string]interface{}{
-			{
-				"c_a": "Hello c_a",
-				"c_b": 2,
-			},
-		},
-		"d": &Struct01{
-			A: "structfielda",
-		},
-	}
-	err := v.Validate(context.Background(), input)
-	if err != nil {
-		t.Error(utils.JsonPrettyPrint(err))
-	}
+
+	// input := map[string]interface{}{
+	// 	"a": 0,
+	// 	"b": false,
+	// 	"c": 0,
+	// 	//"d": true,
+	// }
+
+	// v := validator.New(rules)
+	// err := v.Validate(context.Background(), input)
+
+	// t.Error(utils.JsonPrettyPrint(err.(*types.MessageBag).Messages()))
 }
